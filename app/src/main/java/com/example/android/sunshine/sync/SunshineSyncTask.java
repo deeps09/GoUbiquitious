@@ -18,17 +18,31 @@ package com.example.android.sunshine.sync;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
+import android.database.DatabaseUtils;
+import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.text.format.DateUtils;
+import android.util.Log;
 
 import com.example.android.sunshine.data.SunshinePreferences;
 import com.example.android.sunshine.data.WeatherContract;
 import com.example.android.sunshine.utilities.NetworkUtils;
 import com.example.android.sunshine.utilities.NotificationUtils;
 import com.example.android.sunshine.utilities.OpenWeatherJsonUtils;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import java.net.URL;
 
-public class SunshineSyncTask {
+public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListener,
+        GoogleApiClient.ConnectionCallbacks {
 
     /**
      * Performs the network request for updated weather, parses the JSON from that request, and
@@ -38,14 +52,23 @@ public class SunshineSyncTask {
      *
      * @param context Used to access utility methods and the ContentResolver
      */
-    synchronized public static void syncWeather(Context context) {
-
+    private String TAG = SunshineSyncTask.class.getSimpleName();
+    synchronized public void syncWeather(Context context) {
         try {
             /*
              * The getUrl method will return the URL that we need to get the forecast JSON for the
              * weather. It will decide whether to create a URL based off of the latitude and
              * longitude or off of a simple location as a String.
              */
+            GoogleApiClient mGoogleApClient;
+            mGoogleApClient = new GoogleApiClient.Builder(context)
+                    .addConnectionCallbacks(SunshineSyncTask.this)
+                    .addOnConnectionFailedListener(SunshineSyncTask.this)
+                    .addApi(Wearable.API)
+                    .build();
+
+            mGoogleApClient.connect();
+
             URL weatherRequestUrl = NetworkUtils.getUrl(context);
 
             /* Use the URL to retrieve the JSON */
@@ -106,11 +129,54 @@ public class SunshineSyncTask {
 
             /* If the code reaches this point, we have successfully performed our sync */
 
+                ContentResolver resolver = context.getContentResolver();
+                Cursor cursor = resolver.query(WeatherContract.WeatherEntry.CONTENT_URI, null, null, null, null );
+                cursor.moveToFirst();
+
+                String min = Float.toString(cursor.getFloat(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MIN_TEMP)));
+                String max = Float.toString(cursor.getFloat(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MAX_TEMP)));
+                String dateTime = String.valueOf(System.currentTimeMillis());
+                int weatherId = cursor.getInt(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_WEATHER_ID));
+
+                Log.d(SunshineFirebaseJobService.class.getSimpleName(), DatabaseUtils.dumpCursorToString(cursor));
+
+                PutDataMapRequest mapRequest = PutDataMapRequest.create("/weather");
+                mapRequest.getDataMap().putString("min", min);
+                mapRequest.getDataMap().putString("max", max);
+                mapRequest.getDataMap().putString("dt", dateTime);
+
+                PutDataRequest request = mapRequest.asPutDataRequest();
+                Wearable.DataApi.putDataItem(mGoogleApClient, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                        if (dataItemResult.getStatus().isSuccess()){
+                            Log.d(TAG , "DataApi: Success");
+                        } else{
+                            Log.d(TAG, "DataApi: Failure");
+
+                        }
+                    }
+                });
+
             }
 
         } catch (Exception e) {
             /* Server probably invalid */
             e.printStackTrace();
         }
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
     }
 }

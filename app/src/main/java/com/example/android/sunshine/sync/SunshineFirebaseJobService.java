@@ -15,18 +15,36 @@
  */
 package com.example.android.sunshine.sync;
 
+import android.content.ContentResolver;
 import android.content.Context;
+import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.os.AsyncTask;
+import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.util.Log;
 
+import com.example.android.sunshine.data.WeatherContract;
 import com.firebase.jobdispatcher.Job;
 import com.firebase.jobdispatcher.JobParameters;
 import com.firebase.jobdispatcher.JobService;
 import com.firebase.jobdispatcher.RetryStrategy;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 
-public class SunshineFirebaseJobService extends JobService {
+public class SunshineFirebaseJobService extends JobService{
 
     private AsyncTask<Void, Void, Void> mFetchWeatherTask;
+
+    private String TAG = SunshineFirebaseJobService.class.getSimpleName();
 
     /**
      * The entry point to your Job. Implementations should offload work to another thread of
@@ -41,21 +59,34 @@ public class SunshineFirebaseJobService extends JobService {
     @Override
     public boolean onStartJob(final JobParameters jobParameters) {
 
+        Log.d(TAG, "onStartJob: ");
         mFetchWeatherTask = new AsyncTask<Void, Void, Void>(){
             @Override
             protected Void doInBackground(Void... voids) {
+                Log.d(TAG, "doInBackground: ");
                 Context context = getApplicationContext();
-                SunshineSyncTask.syncWeather(context);
+
+                /*mGoogleApClient = new GoogleApiClient.Builder(context)
+                        .addConnectionCallbacks(SunshineFirebaseJobService.this)
+                        .addOnConnectionFailedListener(SunshineFirebaseJobService.this)
+                        .addApi(Wearable.API)
+                        .build();
+
+                mGoogleApClient.connect();*/
+
+                SunshineSyncTask sunshineSyncTask = new SunshineSyncTask();
+                sunshineSyncTask.syncWeather(context);
                 jobFinished(jobParameters, false);
                 return null;
             }
 
             @Override
             protected void onPostExecute(Void aVoid) {
-                jobFinished(jobParameters, false);
+                Log.d(TAG, "onPostExecute: ");
             }
         };
 
+        jobFinished(jobParameters, false);
         mFetchWeatherTask.execute();
         return true;
     }

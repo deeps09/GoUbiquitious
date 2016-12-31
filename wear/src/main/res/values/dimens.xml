@@ -9,4 +9,6 @@
     <dimen name="date_text_size">14dp</dimen>
     <dimen name="date_y_offset">90dp</dimen>
 
+    <dimen name="line_y_offset">100dp</dimen>
+
 </resources>

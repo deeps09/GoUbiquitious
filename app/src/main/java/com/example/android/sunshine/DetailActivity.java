@@ -17,14 +17,17 @@ package com.example.android.sunshine;
 
 import android.content.Intent;
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.databinding.DataBindingUtil;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.ContactsContract;
 import android.support.v4.app.LoaderManager;
 import android.support.v4.app.ShareCompat;
 import android.support.v4.content.CursorLoader;
 import android.support.v4.content.Loader;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -33,6 +36,9 @@ import com.example.android.sunshine.data.WeatherContract;
 import com.example.android.sunshine.databinding.ActivityDetailBinding;
 import com.example.android.sunshine.utilities.SunshineDateUtils;
 import com.example.android.sunshine.utilities.SunshineWeatherUtils;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class DetailActivity extends AppCompatActivity implements
         LoaderManager.LoaderCallbacks<Cursor> {
@@ -192,7 +198,15 @@ public class DetailActivity extends AppCompatActivity implements
         switch (loaderId) {
 
             case ID_DETAIL_LOADER:
+                /*CursorLoader loader = new CursorLoader(this);
+                loader.setUri(mUri);
+                loader.setProjection(WEATHER_DETAIL_PROJECTION);
+                loader.setSelection(null);
+                loader.setSelectionArgs(null);
+                loader.setSortOrder(null);
 
+                DatabaseUtils.dumpCursorToString(loader.)
+                return loader;*/
                 return new CursorLoader(this,
                         mUri,
                         WEATHER_DETAIL_PROJECTION,
@@ -228,6 +242,14 @@ public class DetailActivity extends AppCompatActivity implements
          * If we have valid data, we want to continue on to bind that data to the UI. If we don't
          * have any data to bind, we just return from this method.
          */
+        data.moveToFirst();
+        long dateInMillis = data.getLong(data.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_DATE));
+        String dateString = SunshineDateUtils.getFriendlyDateString(this, dateInMillis, true);
+
+        /*SimpleDateFormat sdf = new SimpleDateFormat("DD-mm-yyyy");
+        String date = sdf.format(datetime);*/
+
+        Log.d(DetailActivity.class.getSimpleName(), "onLoadFinished: " + DatabaseUtils.dumpCursorToString(data) + " date = " + dateString);
         boolean cursorHasValidData = false;
         if (data != null && data.moveToFirst()) {
             /* We have valid data, continue on to bind the data to the UI */

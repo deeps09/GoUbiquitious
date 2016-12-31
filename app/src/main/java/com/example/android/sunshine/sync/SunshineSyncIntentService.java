@@ -30,6 +30,7 @@ public class SunshineSyncIntentService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
-        SunshineSyncTask.syncWeather(this);
+        SunshineSyncTask sunshineSyncTask = new SunshineSyncTask();
+        sunshineSyncTask.syncWeather(this);
     }
 }

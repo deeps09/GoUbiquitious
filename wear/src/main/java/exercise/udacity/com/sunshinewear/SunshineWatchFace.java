@@ -29,11 +29,23 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 import android.widget.Toast;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
@@ -46,12 +58,18 @@ import java.util.concurrent.TimeUnit;
  * Digital watch face with seconds. In ambient mode, the seconds aren't displayed. On devices with
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
-public class SunshineWatchFace extends CanvasWatchFaceService {
+public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener, DataApi.DataListener {
+
+    private String TAG = SunshineWatchFace.class.getSimpleName();
+
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
 
     private static final Typeface DATE_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
+
+    private GoogleApiClient mGoogleApiClient;
 
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
@@ -63,11 +81,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
      * Handler message id for updating the time periodically in interactive mode.
      */
     private static final int MSG_UPDATE_TIME = 0;
-
-    @Override
-    public Engine onCreateEngine() {
-        return new Engine();
-    }
 
     private static class EngineHandler extends Handler {
         private final WeakReference<SunshineWatchFace.Engine> mWeakReference;
@@ -95,6 +108,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         Paint mBackgroundPaint;
         Paint mTextPaint;
         Paint mTextDatePaint;
+        Paint mLinePaint;
         boolean mAmbient;
         boolean showColon = true;
         Calendar mCalendar;
@@ -108,6 +122,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         float mXOffset;
         float mYOffset;
         float mYOffsetDate;
+        float mYOffsetLine;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -119,6 +134,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
 
+            mGoogleApiClient = new GoogleApiClient.Builder(SunshineWatchFace.this)
+                    .addApi(Wearable.API)
+                    .addConnectionCallbacks(SunshineWatchFace.this)
+                    .addOnConnectionFailedListener(SunshineWatchFace.this)
+                    .build();
+            mGoogleApiClient.connect();
+
             setWatchFaceStyle(new WatchFaceStyle.Builder(SunshineWatchFace.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
@@ -128,6 +150,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             Resources resources = SunshineWatchFace.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
             mYOffsetDate = resources.getDimension(R.dimen.date_y_offset);
+            mYOffsetLine = resources.getDimension(R.dimen.line_y_offset);
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
@@ -137,6 +160,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
             mTextDatePaint = new Paint();
             mTextDatePaint = createTextPaint(resources.getColor(R.color.date_text), DATE_TYPEFACE);
+
+            mLinePaint = new Paint();
+            mLinePaint.setColor(resources.getColor(R.color.date_text));
 
             mCalendar = Calendar.getInstance();
         }
@@ -277,16 +303,21 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             String textColon = ":";
             String textHour = String.format("%d", mCalendar.get(Calendar.HOUR));
             String textMin = String.format("%02d", mCalendar.get(Calendar.MINUTE));
-            String textSec = String.format("%02d", mCalendar.get(Calendar.SECOND));
+            int amPm = mCalendar.get(Calendar.AM_PM); // returns 1 for am and 2 for pm
+            String textAmPm = "";
+
+            // To avoid adding AM/PM in 24 hour format
+            if (mCalendar.get(Calendar.HOUR) < 13)
+                textAmPm = amPm == 1 ? " am" : " pm";
 
             String timeTextInteractive;
             String textTime;
 
             if (showColon) {
-                timeTextInteractive = textHour + textColon + textMin;
+                timeTextInteractive = textHour + textColon + textMin + textAmPm;
                 showColon = false;
             } else {
-                timeTextInteractive = textHour + " " + textMin;
+                timeTextInteractive = textHour + " " + textMin + textAmPm;
                 showColon = true;
             }
 
@@ -308,6 +339,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
             canvas.drawText(textTime, centerX - widthTime / 2f, mYOffset, mTextPaint);
             canvas.drawText(date, centerX - widthDate / 2f, mYOffsetDate, mTextDatePaint);
+            canvas.drawLine((centerX - widthDate / 2f) + 30, mYOffsetLine, widthDate + 20, mYOffsetLine, mLinePaint);
         }
 
         /**
@@ -339,6 +371,44 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 long delayMs = INTERACTIVE_UPDATE_RATE_MS
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
+            }
+        }
+    }
+
+    @Override
+    public Engine onCreateEngine() {
+        return new Engine();
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+        Log.d(TAG, "onConnected: " + bundle);
+        Wearable.DataApi.addListener(mGoogleApiClient, SunshineWatchFace.this);
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    @Override
+    public void onDataChanged(DataEventBuffer dataEventBuffer) {
+
+        Log.d(TAG, "onDataChanged: Data Received");
+        for (DataEvent dataEvent : dataEventBuffer) {
+            DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
+            String dataPath = dataEvent.getDataItem().getUri().getPath();
+
+            if (dataPath.equals("/weather")){
+                String min = dataMap.getString("min");
+                String max = dataMap.getString("max");
+                Toast.makeText(this, "Min Temp: " + min + ", Max Temp: " + max, Toast.LENGTH_SHORT).show();
             }
         }
     }
