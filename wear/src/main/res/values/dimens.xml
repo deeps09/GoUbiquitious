@@ -6,9 +6,16 @@
     <dimen name="digital_x_offset_round">30dp</dimen>
     <dimen name="digital_y_offset">70dp</dimen>
 
+    <!--date attributes-->
     <dimen name="date_text_size">14dp</dimen>
     <dimen name="date_y_offset">90dp</dimen>
 
+    <!--line attributes-->
     <dimen name="line_y_offset">100dp</dimen>
+
+    <!--temperature attribute-->
+    <dimen name="temp_text_size">20dp</dimen>
+
+
 
 </resources>

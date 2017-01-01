@@ -87,6 +87,27 @@ public final class SunshineWeatherUtils {
     }
 
     /**
+     * This method will format the temperatures to be displayed in the
+     * following form: "HIGH° LOW°"
+     *
+     * @param context Android Context to access preferences and resources
+     * @param high    High temperature for a day in user's preferred units
+     * @param low     Low temperature for a day in user's preferred units
+     *
+     * @return String in the form: "HIGH° LOW°"
+     */
+    public static String formatHighLowsForWear(Context context, double high, double low) {
+        long roundedHigh = Math.round(high);
+        long roundedLow = Math.round(low);
+
+        String formattedHigh = formatTemperature(context, roundedHigh);
+        String formattedLow = formatTemperature(context, roundedLow);
+
+        String highLowStr = formattedHigh + formattedLow;
+        return highLowStr;
+    }
+
+    /**
      * This method uses the wind direction in degrees to determine compass direction as a
      * String. (eg NW) The method will return the wind String in the following form: "2 km/h SW"
      *

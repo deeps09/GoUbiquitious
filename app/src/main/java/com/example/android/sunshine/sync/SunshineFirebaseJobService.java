@@ -40,7 +40,7 @@ import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 
-public class SunshineFirebaseJobService extends JobService{
+public class SunshineFirebaseJobService extends JobService {
 
     private AsyncTask<Void, Void, Void> mFetchWeatherTask;
 
@@ -49,7 +49,7 @@ public class SunshineFirebaseJobService extends JobService{
     /**
      * The entry point to your Job. Implementations should offload work to another thread of
      * execution as soon as possible.
-     *
+     * <p>
      * This is called by the Job Dispatcher to tell us we should start our job. Keep in mind this
      * method is run on the application's main thread, so we need to offload work to a background
      * thread.
@@ -59,20 +59,10 @@ public class SunshineFirebaseJobService extends JobService{
     @Override
     public boolean onStartJob(final JobParameters jobParameters) {
 
-        Log.d(TAG, "onStartJob: ");
-        mFetchWeatherTask = new AsyncTask<Void, Void, Void>(){
+        mFetchWeatherTask = new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... voids) {
-                Log.d(TAG, "doInBackground: ");
                 Context context = getApplicationContext();
-
-                /*mGoogleApClient = new GoogleApiClient.Builder(context)
-                        .addConnectionCallbacks(SunshineFirebaseJobService.this)
-                        .addOnConnectionFailedListener(SunshineFirebaseJobService.this)
-                        .addApi(Wearable.API)
-                        .build();
-
-                mGoogleApClient.connect();*/
 
                 SunshineSyncTask sunshineSyncTask = new SunshineSyncTask();
                 sunshineSyncTask.syncWeather(context);
@@ -82,11 +72,9 @@ public class SunshineFirebaseJobService extends JobService{
 
             @Override
             protected void onPostExecute(Void aVoid) {
-                Log.d(TAG, "onPostExecute: ");
+                jobFinished(jobParameters, false);
             }
         };
-
-        jobFinished(jobParameters, false);
         mFetchWeatherTask.execute();
         return true;
     }

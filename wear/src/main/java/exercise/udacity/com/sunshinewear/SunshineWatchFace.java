@@ -21,11 +21,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -40,13 +43,19 @@ import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -82,6 +91,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
      */
     private static final int MSG_UPDATE_TIME = 0;
 
+    String temperature = null;
+    Bitmap weatherIcon = null;
+
+
     private static class EngineHandler extends Handler {
         private final WeakReference<SunshineWatchFace.Engine> mWeakReference;
 
@@ -109,6 +122,8 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
         Paint mTextPaint;
         Paint mTextDatePaint;
         Paint mLinePaint;
+        Paint mTextWeatherTemp;
+
         boolean mAmbient;
         boolean showColon = true;
         Calendar mCalendar;
@@ -139,7 +154,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
                     .addConnectionCallbacks(SunshineWatchFace.this)
                     .addOnConnectionFailedListener(SunshineWatchFace.this)
                     .build();
-            mGoogleApiClient.connect();
+
 
             setWatchFaceStyle(new WatchFaceStyle.Builder(SunshineWatchFace.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
@@ -164,6 +179,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
             mLinePaint = new Paint();
             mLinePaint.setColor(resources.getColor(R.color.date_text));
 
+            mTextWeatherTemp = new Paint();
+            mTextWeatherTemp = createTextPaint(resources.getColor(R.color.digital_text), DATE_TYPEFACE);
+
             mCalendar = Calendar.getInstance();
         }
 
@@ -186,13 +204,34 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
             super.onVisibilityChanged(visible);
 
             if (visible) {
+                mGoogleApiClient.connect();
                 registerReceiver();
+
+                if (null == temperature) {
+                    PutDataMapRequest mapRequest = PutDataMapRequest.create("/weather_request");
+                    final String timeInMillis = String.valueOf(System.currentTimeMillis());
+
+                    mapRequest.getDataMap().putString("time", timeInMillis);
+                    PutDataRequest request = mapRequest.asPutDataRequest();
+                    Wearable.DataApi.putDataItem(mGoogleApiClient, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                        @Override
+                        public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                            if (dataItemResult.getStatus().isSuccess())
+                                Log.d(TAG, "onResult: Sync request sent to mobile " + timeInMillis);
+                        }
+                    });
+                }
 
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
                 invalidate();
             } else {
                 unregisterReceiver();
+
+                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                    Wearable.DataApi.removeListener(mGoogleApiClient, SunshineWatchFace.this);
+                    mGoogleApiClient.disconnect();
+                }
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -226,11 +265,12 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
             boolean isRound = insets.isRound();
             mXOffset = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
-            float textSize = resources.getDimension(isRound
-                    ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
+
+            float textSize = resources.getDimension(R.dimen.digital_text_size);
 
             mTextPaint.setTextSize(textSize);
             mTextDatePaint.setTextSize(resources.getDimension(R.dimen.date_text_size));
+            mTextWeatherTemp.setTextSize(resources.getDimension(R.dimen.temp_text_size));
         }
 
         @Override
@@ -292,6 +332,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
 
             if (isInAmbientMode()) {
                 canvas.drawColor(Color.BLACK);
+
             } else {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
             }
@@ -308,7 +349,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
 
             // To avoid adding AM/PM in 24 hour format
             if (mCalendar.get(Calendar.HOUR) < 13)
-                textAmPm = amPm == 1 ? " am" : " pm";
+                textAmPm = amPm == 0 ? " am" : " pm";
 
             String timeTextInteractive;
             String textTime;
@@ -338,8 +379,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
             float widthDate = mTextDatePaint.measureText(date);
 
             canvas.drawText(textTime, centerX - widthTime / 2f, mYOffset, mTextPaint);
-            canvas.drawText(date, centerX - widthDate / 2f, mYOffsetDate, mTextDatePaint);
-            canvas.drawLine((centerX - widthDate / 2f) + 30, mYOffsetLine, widthDate + 20, mYOffsetLine, mLinePaint);
+
+            if (!isInAmbientMode()) {
+                canvas.drawText(date, centerX - widthDate / 2f, mYOffsetDate, mTextDatePaint);
+                canvas.drawLine((centerX - widthDate / 2f) + 30, mYOffsetLine, widthDate + 20, mYOffsetLine, mLinePaint);
+
+                if (weatherIcon != null) {
+                    canvas.drawBitmap(weatherIcon, centerX - widthTime / 2f, mYOffsetLine + 10, null);
+                    canvas.drawText(temperature, centerX - 17, mYOffsetLine + 50, mTextWeatherTemp);
+                }
+            }
         }
 
         /**
@@ -404,11 +453,55 @@ public class SunshineWatchFace extends CanvasWatchFaceService implements GoogleA
         for (DataEvent dataEvent : dataEventBuffer) {
             DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
             String dataPath = dataEvent.getDataItem().getUri().getPath();
+            if (dataPath.equals("/weather")) {
+                String temp = dataMap.getString("temp");
 
-            if (dataPath.equals("/weather")){
-                String min = dataMap.getString("min");
-                String max = dataMap.getString("max");
-                Toast.makeText(this, "Min Temp: " + min + ", Max Temp: " + max, Toast.LENGTH_SHORT).show();
+                DataMapItem dataMapItem = DataMapItem.fromDataItem(dataEvent.getDataItem());
+                Asset weatherAsset = dataMapItem.getDataMap().getAsset("icon");
+
+                LoadBitmapAsyncTask bitmapAsyncTask = new LoadBitmapAsyncTask();
+                bitmapAsyncTask.execute(weatherAsset);
+
+                //String max = dataMap.getString("max");
+                Toast.makeText(this, "Temp: " + temp, Toast.LENGTH_SHORT).show();
+                temperature = temp;
+
+            }
+        }
+    }
+
+    private class LoadBitmapAsyncTask extends AsyncTask<Asset, Void, Bitmap> {
+
+        @Override
+        protected Bitmap doInBackground(Asset... params) {
+
+            if (params.length > 0) {
+
+                Asset asset = params[0];
+
+                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
+                        mGoogleApiClient, asset).await().getInputStream();
+
+                if (assetInputStream == null) {
+                    Log.w(TAG, "Requested an unknown Asset.");
+                    return null;
+                }
+
+                Bitmap image = BitmapFactory.decodeStream(assetInputStream);
+                image = Bitmap.createScaledBitmap(image, 80, 80, false);
+                return image;
+
+            } else {
+                Log.e(TAG, "Asset must be non-null");
+                return null;
+            }
+        }
+
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+
+            if (bitmap != null) {
+                weatherIcon = bitmap;
             }
         }
     }

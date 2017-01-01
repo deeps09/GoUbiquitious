@@ -20,6 +20,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -31,14 +33,18 @@ import com.example.android.sunshine.data.WeatherContract;
 import com.example.android.sunshine.utilities.NetworkUtils;
 import com.example.android.sunshine.utilities.NotificationUtils;
 import com.example.android.sunshine.utilities.OpenWeatherJsonUtils;
+import com.example.android.sunshine.utilities.SunshineWeatherUtils;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import java.net.URL;
 
 public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListener,
@@ -52,7 +58,9 @@ public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListe
      *
      * @param context Used to access utility methods and the ContentResolver
      */
+    GoogleApiClient mGoogleApiClient;
     private String TAG = SunshineSyncTask.class.getSimpleName();
+
     synchronized public void syncWeather(Context context) {
         try {
             /*
@@ -60,14 +68,14 @@ public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListe
              * weather. It will decide whether to create a URL based off of the latitude and
              * longitude or off of a simple location as a String.
              */
-            GoogleApiClient mGoogleApClient;
-            mGoogleApClient = new GoogleApiClient.Builder(context)
+
+            mGoogleApiClient = new GoogleApiClient.Builder(context)
                     .addConnectionCallbacks(SunshineSyncTask.this)
                     .addOnConnectionFailedListener(SunshineSyncTask.this)
                     .addApi(Wearable.API)
                     .build();
 
-            mGoogleApClient.connect();
+            mGoogleApiClient.connect();
 
             URL weatherRequestUrl = NetworkUtils.getUrl(context);
 
@@ -127,37 +135,10 @@ public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListe
                     NotificationUtils.notifyUserOfNewWeather(context);
                 }
 
-            /* If the code reaches this point, we have successfully performed our sync */
+                /* If the code reaches this point, we have successfully performed our sync */
 
-                ContentResolver resolver = context.getContentResolver();
-                Cursor cursor = resolver.query(WeatherContract.WeatherEntry.CONTENT_URI, null, null, null, null );
-                cursor.moveToFirst();
-
-                String min = Float.toString(cursor.getFloat(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MIN_TEMP)));
-                String max = Float.toString(cursor.getFloat(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MAX_TEMP)));
-                String dateTime = String.valueOf(System.currentTimeMillis());
-                int weatherId = cursor.getInt(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_WEATHER_ID));
-
-                Log.d(SunshineFirebaseJobService.class.getSimpleName(), DatabaseUtils.dumpCursorToString(cursor));
-
-                PutDataMapRequest mapRequest = PutDataMapRequest.create("/weather");
-                mapRequest.getDataMap().putString("min", min);
-                mapRequest.getDataMap().putString("max", max);
-                mapRequest.getDataMap().putString("dt", dateTime);
-
-                PutDataRequest request = mapRequest.asPutDataRequest();
-                Wearable.DataApi.putDataItem(mGoogleApClient, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
-                    @Override
-                    public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
-                        if (dataItemResult.getStatus().isSuccess()){
-                            Log.d(TAG , "DataApi: Success");
-                        } else{
-                            Log.d(TAG, "DataApi: Failure");
-
-                        }
-                    }
-                });
-
+                /*Sending weather data to wearable*/
+                sendWeatherDataToWearable(context);
             }
 
         } catch (Exception e) {
@@ -166,13 +147,51 @@ public class SunshineSyncTask implements GoogleApiClient.OnConnectionFailedListe
         }
     }
 
+    private void sendWeatherDataToWearable(Context context) {
+        ContentResolver resolver = context.getContentResolver();
+        Cursor cursor = resolver.query(WeatherContract.WeatherEntry.CONTENT_URI, null, null, null, null);
+        cursor.moveToFirst();
+
+        double min = (cursor.getDouble(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MIN_TEMP)));
+        double max = (cursor.getDouble(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_MAX_TEMP)));
+        String dateTime = String.valueOf(System.currentTimeMillis());
+        int weatherId = cursor.getInt(cursor.getColumnIndex(WeatherContract.WeatherEntry.COLUMN_WEATHER_ID));
+
+        int weatherArtId = SunshineWeatherUtils.getSmallArtResourceIdForWeatherCondition(weatherId);
+        Bitmap weatherIcon = BitmapFactory.decodeResource(context.getResources(), weatherArtId);
+        ByteArrayOutputStream oStream = new ByteArrayOutputStream();
+        weatherIcon.compress(Bitmap.CompressFormat.PNG, 100, oStream);
+        Asset weatherAsset = Asset.createFromBytes(oStream.toByteArray());
+
+        Log.d(SunshineFirebaseJobService.class.getSimpleName(), DatabaseUtils.dumpCursorToString(cursor));
+
+        PutDataMapRequest mapRequest = PutDataMapRequest.create("/weather");
+        mapRequest.getDataMap().putString("temp", SunshineWeatherUtils.formatHighLowsForWear(context, max, min));
+        mapRequest.getDataMap().putAsset("icon", weatherAsset);
+        mapRequest.getDataMap().putString("dt", dateTime);
+
+        PutDataRequest request = mapRequest.asPutDataRequest();
+        Wearable.DataApi.putDataItem(mGoogleApiClient, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+            @Override
+            public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                if (dataItemResult.getStatus().isSuccess()) {
+                    Log.d(TAG, "DataApi: Weather data sent Success");
+                } else {
+                    Log.d(TAG, "DataApi: Weather data sending Failure");
+
+                }
+            }
+        });
+    }
+
     @Override
     public void onConnected(@Nullable Bundle bundle) {
     }
 
     @Override
     public void onConnectionSuspended(int i) {
-
+        Log.d(TAG, "onConnectionSuspended: GoogleApiClient Disconnecting...");
+        mGoogleApiClient.disconnect();
     }
 
     @Override
